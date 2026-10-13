@@ -1,0 +1,8 @@
+environment: development
+log_level: DEBUG
+log_json: false
+auth_enabled: false
+ann_backend: brute_force
+reranker_enabled: true
+embedding_provider: hashing
+llm_provider: none

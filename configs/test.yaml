@@ -1,0 +1,9 @@
+environment: test
+log_level: WARNING
+log_json: false
+auth_enabled: false
+ann_backend: brute_force
+reranker_enabled: true
+embedding_provider: hashing
+llm_provider: none
+database_url: postgresql+asyncpg://rag:rag@localhost:5432/rag_test

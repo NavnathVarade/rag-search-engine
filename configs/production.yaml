@@ -1,0 +1,12 @@
+environment: production
+log_level: INFO
+log_json: true
+auth_enabled: true
+rate_limit_anonymous_per_min: 10
+rate_limit_authenticated_per_min: 60
+ann_backend: hnsw
+reranker_enabled: true
+embedding_provider: sentence_transformers
+llm_provider: openai_compatible
+database_pool_size: 20
+database_max_overflow: 10

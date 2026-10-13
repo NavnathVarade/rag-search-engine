@@ -1,0 +1,99 @@
+[project]
+name = "rag-engine"
+version = "0.1.0"
+description = "Hybrid RAG search engine with transparent, from-scratch retrieval algorithms (BM25, dense, RRF, reranking)"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "fastapi>=0.110",
+    "python-multipart>=0.0.9",  # multipart/form-data for POST /documents/upload
+    "uvicorn[standard]>=0.29",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "psycopg2-binary>=2.9",
+    "alembic>=1.13",
+    "httpx>=0.27",
+    "PyJWT>=2.8",
+    "prometheus-client>=0.20",
+    "beautifulsoup4>=4.12",
+    "markdown-it-py>=3.0",
+    "pypdf>=4.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    "structlog>=24.1",
+    "tenacity>=8.2",
+]
+
+[project.optional-dependencies]
+embeddings = ["sentence-transformers>=2.6", "torch>=2.2"]
+
+# Development tools. `uv sync` installs this group by default; `uv sync --no-dev` leaves it out (production image).
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "hypothesis>=6.100",
+    "ruff>=0.4",
+    "mypy>=1.9",
+]
+
+[project.scripts]
+rag = "rag_engine.cli.main:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 170
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B905", "UP042", "SIM108", "B008"]  # B008: Depends() in defaults is the standard FastAPI pattern
+
+[tool.mypy]
+python_version = "3.12"
+# Pragmatic (not full --strict) type checking: the retrieval/chunking/
+# evaluation core (the algorithmic heart of this project) is fully typed
+# and passes cleanly. The thin FastAPI/CLI adapter layer intentionally
+# relaxes a few checks (no-untyped-def on route handlers whose types
+# FastAPI itself validates via Pydantic, union-attr on EngineState fields
+# that are guaranteed non-None by require_built() but not statically
+# provable to mypy without heavier refactoring) -- documented here rather
+# than silenced invisibly.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+ignore_missing_imports = true
+exclude = ["tests/", "notebooks/"]
+
+[[tool.mypy.overrides]]
+module = "rag_engine.api.routes.*"
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "rag_engine.cli.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: requires postgres",
+    "slow: slower benchmark-style tests",
+]
+
+[tool.coverage.run]
+source = ["src/rag_engine"]

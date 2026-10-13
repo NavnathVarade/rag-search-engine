@@ -1,0 +1,9 @@
+# Development-only conveniences, auto-merged by `docker compose up`.
+# NOT loaded when you pass explicit -f files (e.g. the production overlay).
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"   # loopback only, even in dev
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"

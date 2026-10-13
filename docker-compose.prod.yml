@@ -1,0 +1,42 @@
+# Production overlay: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Required secrets are read from the environment (or an .env file) and compose refuses to
+# start if one is missing, instead of silently falling back to a weak default:
+#   POSTGRES_PASSWORD  database password
+#   API_KEYS_JSON      {"<sha256 of key>": {"user_id": "...", "tenant_id": "...", "admin": false}}
+#                      (create keys with `rag auth create-key`)
+#   METRICS_TOKEN      bearer token the Prometheus scraper must send to /metrics
+# No Postgres/Redis ports are published (the base file publishes none). To run several API
+# replicas, put a reverse proxy/load balancer in front and drop the fixed host port.
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  api:
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: production
+      AUTH_ENABLED: "true"
+      LOG_JSON: "true"
+      API_KEYS_JSON: ${API_KEYS_JSON:?set API_KEYS_JSON (hashed keys, see docs/security.md)}
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN}
+      DATABASE_URL: postgresql+asyncpg://rag:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/rag
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    restart: unless-stopped
+
+  worker:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rag:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/rag
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    restart: unless-stopped
