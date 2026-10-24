@@ -36,6 +36,12 @@ Create an API key with: `rag auth create-key --user-id alice --tenant-id t1`
 Download BEIR SciFact or NFCorpus, then:
 ```bash
 uv run python scripts/run_beir.py --dataset /path/to/scifact --stem porter --tune-split train
+
+uv run python scripts/run_beir.py `
+  --dataset .\datasets\scifact `
+  --stem porter `
+  --tune-split train `
+  --embedder sentence-transformers/all-MiniLM-L6-v2
 # with a real embedding model (needs internet): run it as `uv run --extra embeddings python scripts/run_beir.py ...` and add
 #   --embedder sentence-transformers/all-MiniLM-L6-v2
 ```

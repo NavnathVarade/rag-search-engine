@@ -14,6 +14,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import structlog
+
 from rag_engine.config import Settings
 from rag_engine.context.selector import ContextSelector
 from rag_engine.embeddings.base import EmbeddingProvider
@@ -36,6 +38,8 @@ from rag_engine.retrieval.sparse.inverted_index import InvertedIndex
 from rag_engine.retrieval.sparse.tfidf import TfidfScorer
 from rag_engine.retrieval.sparse.tokenizer import Tokenizer, TokenizerConfig
 from rag_engine.retrieval.sparse_retriever import Bm25Retriever, TfidfRetriever
+
+logger = structlog.get_logger("engine")
 
 
 def tracker_scope(acl: dict | None) -> str:
@@ -132,30 +136,55 @@ class EngineState:
             dedup_threshold=self.settings.context_similarity_dedup_threshold,
             min_dense_similarity=self.settings.min_dense_similarity,
         )
-        self.answerer = RagAnswerer(self.llm)
+        self.answerer = RagAnswerer(self.llm, temperature=self.settings.llm_temperature, max_tokens=self.settings.llm_max_tokens)
         self.document_count = len({c.document_id for c in chunk_records})
         self.is_built = True
 
 
+_OPENAI_PROVIDERS = {"openai", "openai_compatible"}
+_ST_PROVIDERS = {"sentence_transformers", "sentence-transformers"}
+
+
+def build_embedder(settings: Settings) -> EmbeddingProvider:
+    """Choose the embedding backend from EMBEDDING_PROVIDER. An unknown value fails at startup instead of
+    silently falling back to the hashing embedder (which has no semantic understanding)."""
+    provider = settings.embedding_provider.lower()
+    if provider == "hashing":
+        return HashingEmbedder(dimension=settings.embedding_dimension)
+    if provider in _ST_PROVIDERS:
+        from rag_engine.embeddings.local import SentenceTransformerEmbedder  # heavy import: only when selected
+
+        return SentenceTransformerEmbedder(
+            model_name=settings.embedding_model, device=settings.embedding_device, batch_size=settings.embedding_batch_size,
+        )
+    raise ConfigurationError(f"unknown EMBEDDING_PROVIDER {settings.embedding_provider!r}: use 'hashing' or 'sentence_transformers'")
+
+
 def build_llm(settings: Settings) -> LLMProvider:
     """Choose the generation backend from settings. Without credentials the offline stub is used
-    (its answers say so); it is never silently substituted for a configured provider."""
+    (its answers say so, and a warning is logged); it is never silently substituted for a provider
+    that is configured, and an unknown LLM_PROVIDER fails at startup."""
     from rag_engine.generation.local import OllamaProvider
     from rag_engine.generation.openai import OpenAICompatibleProvider
 
     provider = settings.llm_provider.lower()
+    if provider == "none":
+        return NullLLMProvider()
     if provider == "local":
         return OllamaProvider(model=settings.llm_model, base_url=settings.llm_base_url, timeout_s=settings.llm_timeout_s)
-    if provider == "openai_compatible" and settings.llm_api_key:
+    if provider in _OPENAI_PROVIDERS:
+        if not settings.llm_api_key:
+            logger.warning("llm_api_key_missing", provider=provider, detail="LLM_API_KEY is empty: answers use the offline stub")
+            return NullLLMProvider()
         return OpenAICompatibleProvider(
             base_url=settings.llm_base_url, api_key=settings.llm_api_key, model=settings.llm_model,
             timeout_s=settings.llm_timeout_s, max_retries=settings.llm_max_retries,
         )
-    return NullLLMProvider()
+    raise ConfigurationError(f"unknown LLM_PROVIDER {settings.llm_provider!r}: use 'openai' (or 'openai_compatible'), 'local' or 'none'")
 
 
 def build_engine_state(settings: Settings) -> EngineState:
-    base_embedder = HashingEmbedder(dimension=settings.embedding_dimension)
+    base_embedder = build_embedder(settings)
     embedder = CachedEmbeddingProvider(base_embedder, max_size=settings.embedding_cache_size)
     llm = build_llm(settings)
     reranker: Reranker = HeuristicReranker()

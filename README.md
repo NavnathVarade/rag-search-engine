@@ -43,7 +43,7 @@ the stemming ablation, method and caveats: [docs/benchmarking.md](docs/benchmark
 ## Quickstart
 
 ```bash
-git clone <repository>
+git clone https://github.com/NavnathVarade/rag-search-engine
 cd rag-search-engine
 cp .env.example .env
 docker compose up --build

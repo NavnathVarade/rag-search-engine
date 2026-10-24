@@ -25,6 +25,14 @@ class _RetryableError(Exception):
     pass
 
 
+class _BadRequest(GenerationError):
+    """HTTP 400 from the API; keeps the response body so the caller can see which parameter was refused."""
+
+    def __init__(self, message: str, body: str) -> None:
+        super().__init__(message)
+        self.body = body
+
+
 class OpenAICompatibleProvider:
     def __init__(
         self,
@@ -41,9 +49,49 @@ class OpenAICompatibleProvider:
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self._client = client or httpx.AsyncClient(timeout=timeout_s)
+        # Newer OpenAI models reject `max_tokens` (they want `max_completion_tokens`) and reasoning models only
+        # accept the default temperature. Rather than hard-coding model names, the provider starts with the
+        # widely supported form and, if the API says a parameter is refused, adapts once and remembers.
+        self._token_param = "max_tokens"
+        self._send_temperature = True
 
     def model_name(self) -> str:
         return self.model
+
+    def _payload(self, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, stream: bool) -> dict:
+        payload: dict = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            self._token_param: max_tokens,
+            "stream": stream,
+        }
+        if self._send_temperature:
+            payload["temperature"] = temperature
+        return payload
+
+    def _adapt_to_rejection(self, payload: dict, body: str) -> bool:
+        """If the 400 says a parameter we sent is unsupported, drop/rename it in `payload` and return True."""
+        text = body.lower()
+        if not any(w in text for w in ("unsupported", "not supported", "does not support", "unrecognized", "use 'max_completion_tokens'")):
+            return False
+        if "max_tokens" in payload and "max_tokens" in text:
+            payload["max_completion_tokens"] = payload.pop("max_tokens")
+            self._token_param = "max_completion_tokens"
+            return True
+        if "temperature" in payload and "temperature" in text:
+            payload.pop("temperature")
+            self._send_temperature = False
+            return True
+        return False
+
+    async def _post_adapting(self, payload: dict) -> dict:
+        for _ in range(3):  # at most: rename max_tokens, then drop temperature, then the real attempt
+            try:
+                return await self._post_chat_completion(payload)
+            except _BadRequest as exc:
+                if not self._adapt_to_rejection(payload, exc.body):
+                    raise
+        return await self._post_chat_completion(payload)
 
     async def _post_chat_completion(self, payload: dict) -> dict:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
@@ -68,7 +116,10 @@ class OpenAICompatibleProvider:
                 raise _RetryableError(f"transient upstream error: {resp.status_code}")
             if resp.status_code >= 400:
                 # permanent errors (401, 400 malformed request, etc) must NOT retry
-                raise GenerationError(f"LLM request failed: {resp.status_code} {resp.text[:200]}")
+                message = f"LLM request failed: {resp.status_code} {resp.text[:200]}"
+                if resp.status_code == 400:
+                    raise _BadRequest(message, resp.text)
+                raise GenerationError(message)
             return resp.json()
 
         try:
@@ -79,21 +130,19 @@ class OpenAICompatibleProvider:
     async def generate(
         self, system_prompt: str, user_prompt: str, *, temperature: float = 0.1, max_tokens: int = 1000
     ) -> GenerationResult:
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
-        }
-        data = await self._post_chat_completion(payload)
+        payload = self._payload(system_prompt, user_prompt, temperature, max_tokens, stream=False)
+        data = await self._post_adapting(payload)
         choice = data["choices"][0]
         usage = data.get("usage", {})
+        text = choice["message"].get("content") or ""
+        if not text.strip():
+            reason = choice.get("finish_reason", "unknown")
+            raise GenerationError(
+                f"the model returned an empty answer (finish_reason={reason}). Reasoning models spend part of the "
+                "token budget on thinking: if finish_reason is 'length', raise LLM_MAX_TOKENS."
+            )
         return GenerationResult(
-            text=choice["message"]["content"],
+            text=text,
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
             model=data.get("model", self.model),
@@ -104,16 +153,7 @@ class OpenAICompatibleProvider:
         self, system_prompt: str, user_prompt: str, *, temperature: float = 0.1, max_tokens: int = 1000
     ) -> AsyncIterator[str]:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": True,
-        }
+        payload = self._payload(system_prompt, user_prompt, temperature, max_tokens, stream=True)
         try:
             async with self._client.stream(
                 "POST", f"{self.base_url}/chat/completions", json=payload, headers=headers, timeout=self.timeout_s

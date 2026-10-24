@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 50
 
     # --- generation ---
-    llm_provider: str = "openai_compatible"  # "openai_compatible" | "local" | "none"
+    llm_provider: str = "openai_compatible"  # "openai" (alias: "openai_compatible") | "local" (Ollama) | "none"
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
     llm_api_key: str = ""

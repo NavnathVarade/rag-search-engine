@@ -33,11 +33,13 @@ INSUFFICIENT_EVIDENCE_ANSWER = "I don't have enough evidence in the indexed docu
 
 
 class RagAnswerer:
-    def __init__(self, llm: LLMProvider) -> None:
+    def __init__(self, llm: LLMProvider, temperature: float = 0.1, max_tokens: int = 1000) -> None:
         self.llm = llm
+        self.temperature = temperature  # LLM_TEMPERATURE
+        self.max_tokens = max_tokens  # LLM_MAX_TOKENS
 
     async def answer(
-        self, question: str, selection: ContextSelectionResult, temperature: float = 0.1, max_tokens: int = 1000
+        self, question: str, selection: ContextSelectionResult, temperature: float | None = None, max_tokens: int | None = None
     ) -> ChatAnswer:
         if not selection.selected:
             # Nothing relevant was retrieved: answer deterministically and skip the LLM call entirely
@@ -62,7 +64,11 @@ class RagAnswerer:
                 injection_flags.append(f"chunk {ctx.chunk_id}: {scan.matched_patterns}")
 
         user_prompt = build_user_prompt(question, contexts)
-        result = await self.llm.generate(SYSTEM_PROMPT, user_prompt, temperature=temperature, max_tokens=max_tokens)
+        result = await self.llm.generate(
+            SYSTEM_PROMPT, user_prompt,
+            temperature=self.temperature if temperature is None else temperature,
+            max_tokens=self.max_tokens if max_tokens is None else max_tokens,
+        )
 
         document_ids = {s.result.chunk_id: s.result.document_id for s in selection.selected}
         validation = extract_and_validate_citations(result.text, contexts, document_ids)

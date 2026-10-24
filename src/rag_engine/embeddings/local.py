@@ -119,7 +119,7 @@ class SentenceTransformerEmbedder:
             self._model = SentenceTransformer(model_name, device=device)
         except Exception as exc:
             raise EmbeddingError(f"failed to load embedding model {model_name}: {exc}") from exc
-        self._dimension = self._model.get_sentence_embedding_dimension()
+        self._dimension = self._model.get_embedding_dimension()
 
     def embed_documents(self, texts: list[str]) -> np.ndarray:
         if not texts:

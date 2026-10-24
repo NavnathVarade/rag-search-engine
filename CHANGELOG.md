@@ -8,6 +8,13 @@
 - API: `GET /api/v1/documents`, `POST /api/v1/documents/upload` (multipart), `POST /api/v1/documents/ingest-url` (SSRF-checked, size-capped), `GET /api/v1/info`, `GET /api/v1/benchmarks`; `GET /api/v1/documents/{id}` now returns chunk text. Settings `URL_INGEST_ALLOW_PRIVATE`, `BENCHMARKS_DIR`, `FRONTEND_DIR`.
 - Makefile targets `frontend-*` and CI jobs `frontend` and `frontend-e2e` (the CI jobs have not been run on a runner).
 ### Fixed
+- `EMBEDDING_PROVIDER=sentence_transformers` was ignored: the API and CLI always built the hashing embedder. New `build_embedder` honours `EMBEDDING_PROVIDER`/`EMBEDDING_MODEL`/`EMBEDDING_DEVICE`/`EMBEDDING_BATCH_SIZE`; an unknown value stops startup. Tested with a stand-in for the library only (the real model was not run here).
+- `LLM_PROVIDER=openai` silently meant "stub". `openai` is now an alias of `openai_compatible`, an unknown provider stops startup, and a missing `LLM_API_KEY` logs a warning.
+- `LLM_TEMPERATURE` and `LLM_MAX_TOKENS` were never read (answers always used 0.1 and 1000); they now apply.
+- OpenAI provider: if a model refuses `max_tokens` or a non-default temperature (newer/reasoning models), it retries once with `max_completion_tokens` / without temperature and remembers; an empty reply (token budget spent on reasoning) now raises a clear error naming `LLM_MAX_TOKENS`. Tested against a mocked transport replaying OpenAI's error wording; not run against the live API.
+### Added
+- `scripts/check_embeddings.py`: loads the configured embedder and runs a semantic sanity test.
+### Fixed
 - The engine always used the offline stub answerer: `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_BASE_URL` and `LLM_MODEL` were never read. They now select the OpenAI-compatible provider (with a key) or Ollama (`LLM_PROVIDER=local`); without credentials the stub is still used and says so.
 - `scripts/run_beir.py`: evaluation on BEIR-format datasets (nDCG@10, Recall, MRR, HNSW recall vs exact); SciFact results in `benchmarks/results/scifact.json`.
 - HNSW regression tests (recall on clustered data, directed-edge removal).

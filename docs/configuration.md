@@ -19,7 +19,7 @@ raises immediately rather than producing silently wrong scores later.
 | `RERANKER_ENABLED` / `RERANK_TOP_K` | `true` / `5` | see docs/reranking.md |
 | `MAX_CONTEXT_TOKENS` | `6000` | context budget passed to the LLM |
 | `CHUNKING_STRATEGY` | `recursive` | one of `fixed/recursive/sentence/markdown/code/parent_child/semantic` |
-| `LLM_PROVIDER` | `openai_compatible` | `openai_compatible` / `local` / `none` |
+| `LLM_PROVIDER` | `openai_compatible` | `openai` (same as `openai_compatible`) / `local` / `none`. Unknown values stop startup. Without `LLM_API_KEY` the offline stub is used and a warning is logged |
 | `AUTH_ENABLED` | `false` | `false` in dev = every request is treated as an authenticated admin |
 | `RATE_LIMIT_ANONYMOUS_PER_MIN` / `RATE_LIMIT_AUTHENTICATED_PER_MIN` | `30` / `120` | |
 
